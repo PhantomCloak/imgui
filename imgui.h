@@ -1547,6 +1547,10 @@ enum ImGuiNavInput
 };
 #endif
 
+namespace ImGui{
+  void BeginGroupPanel(const char* name, const ImVec2& size = ImVec2(-1.0f, -1.0f));
+  void EndGroupPanel();
+}
 // Configuration flags stored in io.ConfigFlags. Set by user/application.
 enum ImGuiConfigFlags_
 {
