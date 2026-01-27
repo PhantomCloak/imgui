@@ -1006,13 +1006,22 @@ void ImGui_ImplWGPU_DebugPrintAdapterInfo(const WGPUAdapter& adapter)
 {
     WGPUAdapterInfo info = {};
     wgpuAdapterGetInfo(adapter, &info);
+#if !defined(IMGUI_IMPL_WEBGPU_BACKEND_WGPU_EMSCRIPTEN)
     printf("description: \"%.*s\"\n", (int)info.description.length, info.description.data);
     printf("vendor: \"%.*s\", vendorID: %x\n", (int)info.vendor.length, info.vendor.data, info.vendorID);
     printf("architecture: \"%.*s\"\n", (int) info.architecture.length, info.architecture.data);
     printf("device: \"%.*s\", deviceID: %x\n", (int)info.device.length, info.device.data, info.deviceID);
+#else
+    printf("description: \"%s\"\n", info.description);
+    printf("vendor: \"%s\", vendorID: %x\n", info.vendor, info.vendorID);
+    printf("architecture: \"%s\"\n", info.architecture);
+    printf("device: \"%s\", deviceID: %x\n", info.device, info.deviceID);
+#endif
     printf("backendType: \"%s\"\n", ImGui_ImplWGPU_GetBackendTypeName(info.backendType));
     printf("adapterType: \"%s\"\n", ImGui_ImplWGPU_GetAdapterTypeName(info.adapterType));
+#if !defined(IMGUI_IMPL_WEBGPU_BACKEND_WGPU_EMSCRIPTEN)
     wgpuAdapterInfoFreeMembers(info);
+#endif
 }
 
 #ifndef __EMSCRIPTEN__
