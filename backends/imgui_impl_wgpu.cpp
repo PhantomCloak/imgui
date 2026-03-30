@@ -7,6 +7,8 @@
 //  [X] Renderer: Large meshes support (64k+ vertices) even with 16-bit indices (ImGuiBackendFlags_RendererHasVtxOffset).
 //  [X] Renderer: Expose selected render state for draw callbacks to use. Access in '(ImGui_ImplXXXX_RenderState*)GetPlatformIO().Renderer_RenderState'.
 //  [X] Renderer: Texture updates support for dynamic font system (ImGuiBackendFlags_RendererHasTextures).
+// Missing features or Issues:
+//  [ ] Renderer: Multi-viewport support (multiple windows), useful for desktop.
 
 // Read imgui_impl_wgpu.h about how to use the IMGUI_IMPL_WEBGPU_BACKEND_WGPU or IMGUI_IMPL_WEBGPU_BACKEND_DAWN flags.
 
@@ -88,6 +90,7 @@ struct RenderResources
     WGPUBuffer          Uniforms = nullptr;             // Shader uniforms
     WGPUBindGroup       CommonBindGroup = nullptr;      // Resources bind-group to bind the common resources to pipeline
     ImGuiStorage        ImageBindGroups;                // Resources bind-group to bind the font/image resources to pipeline (this is a key->value map)
+    ImGuiStorage        ImageBindGroupsUsed;            // Tracks which ImageBindGroups entries were used this frame (for pruning stale entries)
     WGPUBindGroupLayout ImageBindGroupLayout = nullptr; // Cache layout used for the image bind group. Avoids allocating unnecessary JS objects when working with WebASM
 };
 
@@ -500,6 +503,7 @@ void ImGui_ImplWGPU_RenderDrawData(ImDrawData* draw_data, WGPURenderPassEncoder 
                     bind_group = ImGui_ImplWGPU_CreateImageBindGroup(bd->renderResources.ImageBindGroupLayout, (WGPUTextureView)tex_id);
                     bd->renderResources.ImageBindGroups.SetVoidPtr(tex_id_hash, bind_group);
                 }
+                bd->renderResources.ImageBindGroupsUsed.SetInt(tex_id_hash, 1);
                 wgpuRenderPassEncoderSetBindGroup(pass_encoder, 1, (WGPUBindGroup)bind_group, 0, nullptr);
 
                 // Project scissor/clipping rectangles into framebuffer space
@@ -523,14 +527,21 @@ void ImGui_ImplWGPU_RenderDrawData(ImDrawData* draw_data, WGPURenderPassEncoder 
         global_vtx_offset += draw_list->VtxBuffer.Size;
     }
 
-    // Remove all ImageBindGroups
+    // Release bind groups that were NOT used this frame (stale entries from old texture views).
+    // Entries that were used are kept cached for the next frame.
     ImGuiStorage& image_bind_groups = bd->renderResources.ImageBindGroups;
-    for (int i = 0; i < image_bind_groups.Data.Size; i++)
+    ImGuiStorage& image_bind_groups_used = bd->renderResources.ImageBindGroupsUsed;
+    for (int i = image_bind_groups.Data.Size - 1; i >= 0; i--)
     {
-        WGPUBindGroup bind_group = (WGPUBindGroup)image_bind_groups.Data[i].val_p;
-        SafeRelease(bind_group);
+        ImGuiID key = image_bind_groups.Data[i].key;
+        if (image_bind_groups_used.GetInt(key, 0) == 0)
+        {
+            WGPUBindGroup bind_group = (WGPUBindGroup)image_bind_groups.Data[i].val_p;
+            SafeRelease(bind_group);
+            image_bind_groups.Data.erase(image_bind_groups.Data.Data + i);
+        }
     }
-    image_bind_groups.Data.resize(0);
+    image_bind_groups_used.Data.resize(0);
 
     platform_io.Renderer_RenderState = nullptr;
 }
@@ -966,7 +977,7 @@ const char* ImGui_ImplWGPU_GetLogLevelName(WGPULogLevel level)
 {
     switch (level)
     {
-    case WGPULogLevel_Error: return "Error"; 
+    case WGPULogLevel_Error: return "Error";
     case WGPULogLevel_Warn: return "Warn";
     case WGPULogLevel_Info: return "Info";
     case WGPULogLevel_Debug: return "Debug";
@@ -1006,22 +1017,13 @@ void ImGui_ImplWGPU_DebugPrintAdapterInfo(const WGPUAdapter& adapter)
 {
     WGPUAdapterInfo info = {};
     wgpuAdapterGetInfo(adapter, &info);
-#if !defined(IMGUI_IMPL_WEBGPU_BACKEND_WGPU_EMSCRIPTEN)
-    printf("description: \"%.*s\"\n", (int)info.description.length, info.description.data);
-    printf("vendor: \"%.*s\", vendorID: %x\n", (int)info.vendor.length, info.vendor.data, info.vendorID);
-    printf("architecture: \"%.*s\"\n", (int) info.architecture.length, info.architecture.data);
-    printf("device: \"%.*s\", deviceID: %x\n", (int)info.device.length, info.device.data, info.deviceID);
-#else
-    printf("description: \"%s\"\n", info.description);
-    printf("vendor: \"%s\", vendorID: %x\n", info.vendor, info.vendorID);
-    printf("architecture: \"%s\"\n", info.architecture);
-    printf("device: \"%s\", deviceID: %x\n", info.device, info.deviceID);
-#endif
-    printf("backendType: \"%s\"\n", ImGui_ImplWGPU_GetBackendTypeName(info.backendType));
-    printf("adapterType: \"%s\"\n", ImGui_ImplWGPU_GetAdapterTypeName(info.adapterType));
-#if !defined(IMGUI_IMPL_WEBGPU_BACKEND_WGPU_EMSCRIPTEN)
+    //printf("description: \"%.*s\"\n", (int)info.description.length, info.description.data);
+    //printf("vendor: \"%.*s\", vendorID: %x\n", (int)info.vendor.length, info.vendor.data, info.vendorID);
+    //printf("architecture: \"%.*s\"\n", (int) info.architecture.length, info.architecture.data);
+    //printf("device: \"%.*s\", deviceID: %x\n", (int)info.device.length, info.device.data, info.deviceID);
+    //printf("backendType: \"%s\"\n", ImGui_ImplWGPU_GetBackendTypeName(info.backendType));
+    //printf("adapterType: \"%s\"\n", ImGui_ImplWGPU_GetAdapterTypeName(info.adapterType));
     wgpuAdapterInfoFreeMembers(info);
-#endif
 }
 
 #ifndef __EMSCRIPTEN__
